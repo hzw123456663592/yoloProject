@@ -1,0 +1,86 @@
+server:
+  host: "0.0.0.0"
+  port: 9000
+  public_host: "127.0.0.1"   # 前端访问你服务器的 IP/域名
+  public_http_port: 9000
+
+user_backend:
+  base_url: "http://127.0.0.1:8080"   # 比如 http://192.168.1.100:8080
+  warning_path: "/addVideo/warning"        # 你 Postman 截图里的那个路径
+  timeout: 10
+
+zlm:
+  host: "http://[::1]:8080"
+  secret: "Xnf4eMMSUulbEOPRWnKOOSPTc0XKyoX5"
+  vhost: "__defaultVhost__"
+  webrtc_schema: "webrtc"
+  webrtc_port: 443
+  rtmp_base: "rtmp://[::1]:1935"
+
+storage:
+  data_dir: "./data"
+  alarms_dir: "./data/alarms"
+  clips_dir: "./data/clips"
+
+streams:
+  default_app: "camera"
+  # 默认抽帧间隔（秒），可以被单个流覆盖
+  default_capture_interval: 3
+  items:
+    - camera_id: "camera_001"
+      rtsp_url: "rtsp://admin:A1314520@192.168.1.241:554/Streaming/Channels/101"
+      enable_inference: true
+      capture_interval: 3
+      send_clip: true
+      clip_before_seconds: 15
+      clip_after_seconds: 15
+      # 这一路要跑的算法名称（之后推理端会用到）
+      algorithms: ["玩手机","安全帽"]
+
+#    - camera_id: "camera_002"
+#      rtsp_url: "rtsp://xxx/stream2"
+#      enable_inference: false   # 只看不推理
+#      send_clip: false
+
+alarm:
+  # clip 通用配置
+  clip_before_seconds: 15
+  clip_after_seconds: 15
+  clip_daily_limit: 3
+  clip_resize_width: 640
+  ffmpeg_path: "ffmpeg"
+
+# 推理服务 HTTP 信息（后面写推理端时会用）
+inference_server:
+  base_url: "http://127.0.0.1:9100"
+  infer_path: "/infer"
+  timeout: 5
+  fps: 25
+
+# 回调到流媒体端的地址（就是你 media_api 的那个接口 M）
+webhooks:
+  inference_callback: "http://127.0.0.1:9000/api/inference/callback"
+
+# 算法 / 模型列表 = B/H/Z
+algorithms:
+  玩手机:
+    enabled: true
+    weight: "./weights/play_phone/best.pt"  # 你自己的权重路径
+    device: "cpu"                 # 或 "cpu"
+    conf_threshold: 0.4              # YOLO 过滤阈值
+    alert_threshold: 0.5             # 业务告警阈值 = Z[i]
+    classes: ["玩手机"]
+     # 关注的类别（可选）
+    roi: null                        # 或者 [[x,y], [x,y], ...] 一个多边形
+    color: [255, 255, 0]            # RGB，输出会转换为 BGR 供绘图使用
+
+
+  安全帽:
+    enabled: true
+    weight: "./weights/helmet/best.pt"    # 这里换成你的安全帽模型权重路径
+    device: "cpu"
+    conf_threshold: 0.4
+    alert_threshold: 0.5
+    classes: ["helmet" ]
+    roi: null
+    color: [0, 0, 0]
