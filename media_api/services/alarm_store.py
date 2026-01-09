@@ -22,11 +22,12 @@ class AlarmRecord:
 class AlarmStore:
     """简单的基于 JSONL 的告警存储。"""
 
-    def __init__(self, alarms_dir: Path, public_base: str):
+    def __init__(self, alarms_dir: Path, public_base: str, max_snapshots_per_camera: int = 3):
         self.alarms_dir = alarms_dir
         self.public_base = public_base.rstrip("/")
         self.index_path = self.alarms_dir / "alarms.jsonl"
         self.alarms_dir.mkdir(parents=True, exist_ok=True)
+        self.max_snapshots_per_camera = max_snapshots_per_camera
 
     # ---- id & 路径 ----
 
@@ -39,23 +40,48 @@ class AlarmStore:
         ymd = alarm_id[:8]
         return f"{ymd[0:4]}-{ymd[4:6]}-{ymd[6:8]}"
 
-    def _snapshot_folder(self, alarm_id: str, ensure: bool = False) -> Path:
+    def _snapshot_folder(
+        self,
+        alarm_id: str,
+        camera_id: str,
+        ensure: bool = False,
+    ) -> Path:
         date_folder = self._date_folder(alarm_id)
-        folder = self.alarms_dir / date_folder
+        folder = self.alarms_dir / date_folder / camera_id
         if ensure:
             folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def snapshot_paths(self, alarm_id: str) -> tuple[Path, str]:
+    def snapshot_paths(self, alarm_id: str, camera_id: str) -> tuple[Path, str]:
         """返回本地路径 + 对外 URL。"""
-        folder = self._snapshot_folder(alarm_id, ensure=True)
+        folder = self._snapshot_folder(alarm_id, camera_id, ensure=True)
         img_path = folder / f"{alarm_id}.jpg"
-        img_url = f"{self.public_base}/api/snapshots/{folder.name}/{img_path.name}"
+        img_url = f"{self.public_base}/api/snapshots/{folder.parent.name}/{folder.name}/{img_path.name}"
         return img_path, img_url
 
-    def snapshot_file_path(self, alarm_id: str, ensure_dir: bool = False) -> Path:
-        folder = self._snapshot_folder(alarm_id, ensure=ensure_dir)
+    def snapshot_file_path(
+        self,
+        alarm_id: str,
+        camera_id: str,
+        ensure_dir: bool = False,
+    ) -> Path:
+        folder = self._snapshot_folder(alarm_id, camera_id, ensure=ensure_dir)
         return folder / f"{alarm_id}.jpg"
+
+    def cleanup_old_snapshots(self, camera_id: str, alarm_id: str) -> None:
+        if self.max_snapshots_per_camera <= 0:
+            return
+        folder = self._snapshot_folder(alarm_id, camera_id, ensure=True)
+        jpg_files = sorted(
+            [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".jpg"],
+            key=lambda p: p.stat().st_mtime,
+        )
+        while len(jpg_files) > self.max_snapshots_per_camera:
+            oldest = jpg_files.pop(0)
+            try:
+                oldest.unlink()
+            except Exception as exc:
+                print(f"[AlarmStore] failed to delete old snapshot {oldest}: {exc}")
 
     # ---- CRUD ----
 

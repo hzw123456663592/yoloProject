@@ -101,7 +101,9 @@ class StreamWorker(Thread):
                 img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
                 if img is not None:
                     # 根据 alarm_id 生成图片路径 / url
-                    img_path, img_url = self.alarm_store.snapshot_paths(alarm_id)
+                    img_path, img_url = self.alarm_store.snapshot_paths(
+                        alarm_id, self.camera_id
+                    )
                     img_path.parent.mkdir(parents=True, exist_ok=True)
                     cv2.imwrite(str(img_path), img)
                     snapshot_path = str(img_path)
@@ -109,7 +111,9 @@ class StreamWorker(Thread):
             except Exception as e:
                 print(f"[StreamWorker {self.camera_id}] save snapshot failed: {e}")
 
-        # 触发剪辑任务（在保存完图之后）
+            # 触发剪辑任务（在保存完图之后）
+            self.alarm_store.cleanup_old_snapshots(self.camera_id, alarm_id)
+
         if self.send_clip:
             # 方案 B：每一次告警都单独创建一个剪辑任务
             self.clip_recorder.start_clip(alarm_id, alarm_ts)
@@ -138,11 +142,11 @@ class StreamWorker(Thread):
     def _handle_finished_clip(self, alarm_id: str, clip_tmp_path: Path) -> None:
         """把临时 mp4 落盘、更新索引并推给用户后端。"""
         # 1. 先把临时 mp4 移到正式路径
-        clip_url = self.clip_store.save_generated_clip(alarm_id, clip_tmp_path)
+        clip_url = self.clip_store.save_generated_clip(alarm_id, clip_tmp_path, self.camera_id)
         self.alarm_store.update_clip_url(alarm_id, clip_url)
 
         # 2. 算出「正式 mp4 的本地路径」
-        final_video_path = self.clip_store.allocate_clip_path(alarm_id)
+        final_video_path = self.clip_store.allocate_clip_path(alarm_id, self.camera_id)
 
         # 3. 给用户后端发 base64 + 文件流
         if self.alarm_reporter is not None:

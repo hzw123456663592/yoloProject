@@ -186,8 +186,11 @@ class ClipRecorder:
             bufsize=10**8,
         )
         assert proc.stdin is not None
-        for f in frames:
-            proc.stdin.write(f.tobytes())
+        try:
+            for f in frames:
+                proc.stdin.write(f.tobytes())
+        except OSError as exc:
+            print(f"[ClipRecorder] failed to feed frame data: {exc}")
         proc.stdin.close()
         proc.wait()
         return task.out_path

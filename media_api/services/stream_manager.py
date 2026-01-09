@@ -1,8 +1,10 @@
 from __future__ import annotations
-from threading import Event
+from threading import Event, Lock
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
+from common.config_models import StreamsConfig
+from common.config_store import load_system_config
 from common.settings import load_settings
 from media_api.services.clip_store import ClipStore
 from media_api.services.alarm_store import AlarmStore
@@ -16,17 +18,22 @@ class StreamManager:
     def __init__(self):
         self.settings = load_settings()
         self.stop_event = Event()
+        self._lock = Lock()
 
         storage = self.settings.storage
         public_base = f"http://{self.settings.server['public_host']}:{self.settings.server['public_http_port']}"
 
-        self.alarm_store = AlarmStore(Path(storage["alarms_dir"]), public_base)
-
         clip_limit = int(self.settings.alarm.get("clip_daily_limit", 3) or 3)
+        self.alarm_store = AlarmStore(
+            Path(storage["alarms_dir"]),
+            public_base,
+            max_snapshots_per_camera=clip_limit,
+        )
+
         self.clip_store = ClipStore(
             Path(storage["clips_dir"]),
             public_base,
-            max_clips_per_day=clip_limit,
+            max_clips_per_camera=clip_limit,
             cleanup_callback=self._cleanup_clip_resources,
         )
 
@@ -42,27 +49,27 @@ class StreamManager:
         self.workers: Dict[str, StreamWorker] = {}
 
     def start_all(self) -> None:
-        items: List[dict] = self.settings.streams.get("items", [])
-        default_interval = int(self.settings.streams.get("default_capture_interval", 3) or 3)
+        cfg = load_system_config()
+        streams_cfg = cfg.streams
+        self.update_streams(streams_cfg)
 
-        for item in items:
-            cam_id = item["camera_id"]
-            rtsp = item["rtsp_url"]
-            enable_infer = bool(item.get("enable_inference", True))
-            if not enable_infer:
+    def _start_workers_from_streams(self, streams_cfg: StreamsConfig) -> None:
+        default_interval = int(streams_cfg.default_capture_interval or 3)
+        for item in streams_cfg.items:
+            if not item.enable_inference:
                 continue
-            if cam_id in self.workers:
+            if item.camera_id in self.workers:
                 continue
 
-            capture_interval = int(item.get("capture_interval", default_interval))
-            send_clip = bool(item.get("send_clip", True))
-            before_s = int(item.get("clip_before_seconds", self.settings.alarm.get("clip_before_seconds", 10)))
-            after_s = int(item.get("clip_after_seconds", self.settings.alarm.get("clip_after_seconds", 10)))
-            algorithms = item.get("algorithms", [])
+            capture_interval = int(item.capture_interval or default_interval)
+            send_clip = bool(item.send_clip)
+            before_s = int(item.clip_before_seconds or self.settings.alarm.get("clip_before_seconds", 10))
+            after_s = int(item.clip_after_seconds or self.settings.alarm.get("clip_after_seconds", 10))
+            algorithms = item.algorithms or []
 
             worker = StreamWorker(
-                camera_id=cam_id,
-                rtsp_url=rtsp,
+                camera_id=item.camera_id,
+                rtsp_url=item.rtsp_url,
                 algorithms=algorithms,
                 capture_interval=capture_interval,
                 send_clip=send_clip,
@@ -71,26 +78,37 @@ class StreamManager:
                 clip_store=self.clip_store,
                 alarm_store=self.alarm_store,
                 stop_event=self.stop_event,
-                alarm_reporter=self.user_backend_client
+                alarm_reporter=self.user_backend_client,
             )
             worker.start()
-            self.workers[cam_id] = worker
-            print(f"[StreamManager] started worker for {cam_id}")
+            self.workers[item.camera_id] = worker
+            print(f"[StreamManager] started worker for {item.camera_id}")
 
-    def stop_all(self) -> None:
+    def update_streams(self, streams_cfg: StreamsConfig) -> None:
+        with self._lock:
+            self._stop_all_workers()
+            self.stop_event = Event()
+            self._start_workers_from_streams(streams_cfg)
+
+    def _stop_all_workers(self) -> None:
         self.stop_event.set()
         for w in self.workers.values():
             w.join(timeout=2.0)
+        self.workers.clear()
+
+    def stop_all(self) -> None:
+        with self._lock:
+            self._stop_all_workers()
 
     def get_worker(self, camera_id: str) -> StreamWorker | None:
         return self.workers.get(camera_id)
 
-    def _cleanup_clip_resources(self, alarm_ids: List[str]) -> None:
-        for alarm_id in alarm_ids:
-            self._remove_media_metadata(alarm_id)
+    def _cleanup_clip_resources(self, alarm_entries: List[Tuple[str, str]]) -> None:
+        for alarm_id, camera_id in alarm_entries:
+            self._remove_media_metadata(alarm_id, camera_id)
 
-    def _remove_media_metadata(self, alarm_id: str) -> None:
-        snapshot_path = self.alarm_store.snapshot_file_path(alarm_id)
+    def _remove_media_metadata(self, alarm_id: str, camera_id: str) -> None:
+        snapshot_path = self.alarm_store.snapshot_file_path(alarm_id, camera_id)
         if snapshot_path.exists():
             try:
                 snapshot_path.unlink()

@@ -42,6 +42,9 @@ class StreamItem(BaseModel):
     clip_before_seconds: Optional[int] = None
     clip_after_seconds: Optional[int] = None
     algorithms: List[str] = Field(default_factory=list)
+    algorithm_overrides: Dict[str, "AlgorithmOverrideConfig"] = Field(
+        default_factory=dict
+    )
 
 
 class StreamsConfig(BaseModel):
@@ -61,6 +64,14 @@ class AlgorithmConfig(BaseModel):
     color: Optional[Tuple[int, int, int]] = None
 
 
+class AlgorithmOverrideConfig(BaseModel):
+    conf_threshold: Optional[float] = None
+    alert_threshold: Optional[float] = None
+    classes: Optional[List[str]] = None
+    roi: Optional[List[Tuple[float, float]]] = None
+    color: Optional[Tuple[int, int, int]] = None
+
+
 class SystemConfig(BaseModel):
     server: ServerConfig
     user_backend: UserBackendConfig
@@ -68,3 +79,6 @@ class SystemConfig(BaseModel):
     inference_server: InferenceServerConfig
     streams: StreamsConfig
     algorithms: Dict[str, AlgorithmConfig]
+
+
+StreamItem.update_forward_refs()

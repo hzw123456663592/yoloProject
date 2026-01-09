@@ -11,6 +11,12 @@ import numpy as np
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
+from common.config_models import (
+    AlgorithmConfig,
+    AlgorithmOverrideConfig,
+    SystemConfig,
+)
+from common.config_store import load_system_config
 from common.settings import load_settings
 from common.schemas import (
     InferenceRequest,
@@ -62,8 +68,13 @@ class InferenceService:
 
     def __init__(self):
         self.settings = load_settings()
-        # 算法配置：config.yaml -> algorithms:
-        self.alg_cfg: Dict[str, Dict[str, Any]] = self.settings.algorithms or {}
+        self.system_config: SystemConfig = load_system_config()
+        self.alg_cfg: Dict[str, AlgorithmConfig] = self.system_config.algorithms or {}
+        self.stream_overrides: Dict[str, Dict[str, AlgorithmOverrideConfig]] = {}
+        for stream in self.system_config.streams.items:
+            if stream.algorithm_overrides:
+                self.stream_overrides[stream.camera_id] = stream.algorithm_overrides
+
         # 算法对应的固定颜色表
         self._algo_colors: Dict[str, Tuple[int, int, int]] = {}
         self._load_algorithm_colors()
@@ -71,19 +82,16 @@ class InferenceService:
         # 加载 YOLO 模型（一个算法对应一个模型实例）
         self.models: Dict[str, YoloEngine] = {}
         for name, cfg in self.alg_cfg.items():
-            # 1) 全局开关：enabled，默认 True
-            enabled = cfg.get("enabled", True)
+            enabled = cfg.enabled
             if not enabled:
                 print(f"[InferenceService] algorithm '{name}' is disabled in config, skip loading.")
                 continue
 
-            # 2) 基本模型参数
-            weight = cfg["weight"]
-            device = cfg.get("device")
-            conf_threshold = float(cfg.get("conf_threshold", 0.5))
+            weight = cfg.weight
+            device = cfg.device
+            conf_threshold = float(cfg.conf_threshold or 0.5)
 
-            # 3) classes: 尝试把列表元素转成 int（类别 id）
-            classes_cfg = cfg.get("classes")
+            classes_cfg = cfg.classes
             classes_ids: Optional[List[int]] = None
             if isinstance(classes_cfg, list):
                 tmp: List[int] = []
@@ -91,12 +99,10 @@ class InferenceService:
                     try:
                         tmp.append(int(c))
                     except Exception:
-                        # 转 int 失败的条目直接忽略
                         pass
                 if tmp:
                     classes_ids = tmp
 
-            # 4) 真正加载模型
             try:
                 model = YoloEngine(
                     weights_path=weight,
@@ -135,7 +141,7 @@ class InferenceService:
     def _load_algorithm_colors(self) -> None:
         palette = self._DEFAULT_COLOR_PALETTE
         for idx, (name, cfg) in enumerate(self.alg_cfg.items()):
-            color_cfg = cfg.get("color")
+            color_cfg = cfg.color
             if (
                 isinstance(color_cfg, list)
                 and len(color_cfg) >= 3
@@ -145,6 +151,20 @@ class InferenceService:
                 self._algo_colors[name] = (b, g, r)
             else:
                 self._algo_colors[name] = palette[idx % len(palette)]
+
+    def _get_effective_algo_config(
+        self, camera_id: str, algorithm: str
+    ) -> Optional[AlgorithmConfig]:
+        base = self.alg_cfg.get(algorithm)
+        if base is None:
+            return None
+        overrides = self.stream_overrides.get(camera_id, {})
+        override = overrides.get(algorithm)
+        if not override:
+            return base
+        merged = base.dict()
+        merged.update(override.dict(exclude_none=True))
+        return AlgorithmConfig(**merged)
 
 
     # ---------------- ROI 相关 ----------------
@@ -321,19 +341,10 @@ class InferenceService:
                     text_w = bbox[2] - bbox[0]
                     text_h = bbox[3] - bbox[1]
                 text_origin = (x1, y1 - text_h - 4 if y1 - text_h - 4 > 0 else y1 + 4)
-                draw.rectangle(
-                    [
-                        text_origin[0],
-                        text_origin[1],
-                        text_origin[0] + text_w,
-                        text_origin[1] + text_h,
-                    ],
-                    fill=color_rgb,
-                )
                 draw.text(
                     (text_origin[0], text_origin[1]),
                     label,
-                    fill=(255, 255, 255),
+                    fill=color_rgb,
                     font=font,
                 )
 
@@ -344,7 +355,7 @@ class InferenceService:
     def _run_one_algorithm(
         self,
         alg_name: str,
-        cfg: Dict[str, Any],
+        cfg: AlgorithmConfig,
         model: YoloEngine,
         frame: np.ndarray,
         camera_id: str,
@@ -370,7 +381,7 @@ class InferenceService:
         #    这里简单做法：所有 dets 中最大的 conf 作为 Y[i]
         score = max((d.conf for d in dets), default=0.0)
 
-        threshold = float(cfg.get("alert_threshold", 0.5))
+        threshold = float(cfg.alert_threshold or 0.5)
         triggered = score >= threshold
 
         # 4) 把目标列表也一并返回，方便前端调试或后续扩展
@@ -407,16 +418,16 @@ class InferenceService:
         any_triggered = False
 
         for alg_name in req.algorithms:
-            cfg = self.alg_cfg.get(alg_name)
             model = self.models.get(alg_name)
-            if cfg is None or model is None:
-                # 未配置或未加载成功就跳过
+            if model is None:
+                continue
+            effective_cfg = self._get_effective_algo_config(req.camera_id, alg_name)
+            if effective_cfg is None:
                 continue
 
-            # ★ 把 camera_id 传入单算法推理，让它能用到 camera_roi.json
             result = self._run_one_algorithm(
                 alg_name=alg_name,
-                cfg=cfg,
+                cfg=effective_cfg,
                 model=model,
                 frame=frame,
                 camera_id=req.camera_id,
