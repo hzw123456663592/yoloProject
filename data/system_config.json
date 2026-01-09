@@ -1,0 +1,148 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 9000,
+    "public_host": "127.0.0.1",
+    "public_http_port": 9000
+  },
+  "user_backend": {
+    "base_url": "http://127.0.0.1:8080",
+    "warning_path": "/addVideo/warning",
+    "timeout": 10
+  },
+  "zlm": {
+    "host": "http://[::1]:8080",
+    "secret": "Xnf4eMMSUulbEOPRWnKOOSPTc0XKyoX5",
+    "vhost": "__defaultVhost__",
+    "webrtc_schema": null,
+    "webrtc_port": null,
+    "rtmp_base": null
+  },
+  "inference_server": {
+    "base_url": "http://127.0.0.1:9100",
+    "infer_path": "/infer",
+    "timeout": 5,
+    "fps": 25
+  },
+  "streams": {
+    "default_app": "camera",
+    "default_capture_interval": null,
+    "items": [
+      {
+        "camera_id": "camera_001",
+        "rtsp_url": "rtsp://admin:A1314520@192.168.1.241:554/Streaming/Channels/101",
+        "enable_inference": true,
+        "capture_interval": 3,
+        "send_clip": true,
+        "clip_before_seconds": 15,
+        "clip_after_seconds": 15,
+        "algorithms": [
+          "玩手机","安全帽"
+        ],
+        "algorithm_overrides": {
+          "玩手机": {
+            "conf_threshold": 0.3,
+            "alert_threshold": 0.3,
+            "classes": null,
+            "roi": null,
+            "color": null
+          },
+          "安全帽": {
+            "conf_threshold": 0.5,
+            "alert_threshold": 0.7,
+            "classes": null,
+            "roi": null,
+            "color": null
+          }
+        }
+      },
+      {
+        "camera_id": "camera_005",
+        "rtsp_url": "rtsp://admin:A1314520@192.168.1.241:554/Streaming/Channels/101",
+        "enable_inference": true,
+        "capture_interval": 2,
+        "send_clip": true,
+        "clip_before_seconds": 15,
+        "clip_after_seconds": 15,
+        "algorithms": [
+          "安全帽"
+        ],
+        "algorithm_overrides": {
+           "安全帽": {
+            "conf_threshold": 0.4,
+            "alert_threshold": 0.7,
+            "classes": null,
+            "roi": null,
+            "color": null
+          }
+        }
+      }
+    ]
+  },
+  "algorithms": {
+    "玩手机": {
+      "enabled": true,
+      "weight": "./weights/play_phone/best.pt",
+      "device": "cpu",
+      "conf_threshold": 0.4,
+      "alert_threshold": 0.5,
+      "classes": [
+        "玩手机"
+      ],
+      "roi": null,
+      "color": [
+        255,
+        255,
+        0
+      ]
+    },
+    "安全帽": {
+      "enabled": true,
+      "weight": "./weights/helmet/best.pt",
+      "device": "cpu",
+      "conf_threshold": 0.5,
+      "alert_threshold": 0.54,
+      "classes": [
+        "helmet"
+      ],
+      "roi": null,
+      "color": [
+        255,
+        255,
+        0
+      ]
+    },
+    "行人检测": {
+      "enabled": true,
+      "weight": "./weights/people/best.pt",
+      "device": "cpu",
+      "conf_threshold": 0.45,
+      "alert_threshold": 0.6,
+      "classes": [
+        "person"
+      ],
+      "roi": null,
+      "color": [
+        0,
+        255,
+        0
+      ]
+    },
+    "swimming": {
+      "enabled": false,
+      "weight": "./weights/helmet/best.pt",
+      "device": "cpu",
+      "conf_threshold": 0.5,
+      "alert_threshold": 0.9,
+      "classes": [
+        "helmet"
+      ],
+      "roi": null,
+      "color": [
+        255,
+        165,
+        0
+      ]
+    }
+  }
+}

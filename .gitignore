@@ -1,0 +1,30 @@
+# ----------------------------
+# Project ignores (generated)
+# ----------------------------
+
+# Runtime / generated data (only ignore these subfolders under data)
+data/alarms/
+data/clips/
+
+# Logs
+logs/
+*.log
+
+# Model weights / artifacts
+weights/
+
+# Third-party vendored code
+third_party/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# OS / IDE noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
